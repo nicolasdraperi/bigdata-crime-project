@@ -97,6 +97,19 @@ def main():
         .csv(analytics_base + "/avg_by_area_month")
     )
 
+    # Total number of crimes per area
+    total_by_area = (
+        df.groupBy(area_col)
+        .agg(count("*").alias("n_crimes_total"))
+    )
+
+    (
+        total_by_area
+        .write
+        .mode("overwrite")
+        .option("header", "true")
+        .csv(analytics_base + "/total_by_area")
+    )
     spark.stop()
 
 
