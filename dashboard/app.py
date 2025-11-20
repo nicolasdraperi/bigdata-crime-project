@@ -1,7 +1,10 @@
-from hdfs import InsecureClient
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from hdfs import InsecureClient
+
+import folium
+from streamlit_folium import st_folium
 
 
 HDFS_URL = "http://namenode:9870"
@@ -272,14 +275,75 @@ def tab_evolution_annuelle():
         )
         st.plotly_chart(fig_zone, use_container_width=True)
 
+def tab_heatmap_spatio_temporelle():
+    st.subheader("Heatmap mensuelle des crimes par zone")
+
+    df_heat = load_hdfs_csv_dir("crime_heatmap_monthly")
+    if df_heat.empty:
+        st.warning("Aucune donnée trouvée dans HDFS pour crime_heatmap_monthly.")
+        return
+
+    df_heat.columns = [c.strip() for c in df_heat.columns]
+    needed_cols = {"year_int", "month", "AREA NAME", "LAT", "LON", "n_crimes"}
+    if not needed_cols.issubset(set(df_heat.columns)):
+        st.error(f"Colonnes manquantes dans crime_heatmap_monthly. Attendu: {needed_cols}")
+        st.write(df_heat.head())
+        return
+
+    years = sorted(df_heat["year_int"].dropna().unique())
+    year_selected = st.selectbox("Année", years, index=len(years) - 1, key="heat_year")
+
+    df_year = df_heat[df_heat["year_int"] == year_selected]
+
+    months = sorted(df_year["month"].dropna().unique())
+    month_selected = st.selectbox("Mois", months, key="heat_month")
+
+    df_month = df_year[df_year["month"] == month_selected]
+
+    zones = sorted(df_month["AREA NAME"].unique())
+    selected_zones = st.multiselect(
+        "Zones (optionnel, vide = toutes)",
+        zones,
+        default=[],
+        key="heat_zones",
+    )
+
+    if selected_zones:
+        df_month = df_month[df_month["AREA NAME"].isin(selected_zones)]
+
+    if df_month.empty:
+        st.warning("Aucune donnée pour cette combinaison année / mois / zones.")
+        return
+
+    heat_data = df_month[["LAT", "LON", "n_crimes"]].dropna().values.tolist()
+
+    st.write(
+        f"Nombre de points sur la carte : {len(heat_data)} "
+        f"(année {year_selected}, mois {month_selected})"
+    )
+
+    m = folium.Map(location=[34.05, -118.24], zoom_start=10)
+
+    from folium.plugins import HeatMap
+
+    HeatMap(
+        heat_data,
+        radius=10,
+        blur=15,
+        max_zoom=13,
+    ).add_to(m)
+
+    st_folium(m, width=900, height=600)
+
 
 def main():
     st.title("Criminalité à Los Angeles – Dashboard")
 
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "Moyennes par zone",
         "Top 5 zones les plus à risque",
-        "Évolution annuelle"
+        "Évolution annuelle",
+        "Heatmap spatio-temporelle",
     ])
 
     with tab1:
@@ -291,7 +355,8 @@ def main():
     with tab3:
         tab_evolution_annuelle()
 
-
+    with tab4:
+        tab_heatmap_spatio_temporelle()
 
 if __name__ == "__main__":
     main()

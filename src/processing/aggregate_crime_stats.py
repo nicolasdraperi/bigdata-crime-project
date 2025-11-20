@@ -173,6 +173,25 @@ def main():
             .csv(analytics_base + "/crimes_per_year_area_severity")
         )
 
+    # Heatmap monthly data (year, month, area, lat, lon, count)
+    df_heat = (
+        df_month
+        .filter(col("LAT").isNotNull() & col("LON").isNotNull())
+    )
+
+    heatmap_monthly = (
+        df_heat.groupBy("year_int", "month", area_col, "LAT", "LON")
+        .agg(count("*").alias("n_crimes"))
+    )
+
+    (
+        heatmap_monthly
+        .write
+        .mode("overwrite")
+        .option("header", "true")
+        .csv(analytics_base + "/crime_heatmap_monthly")
+    )
+
     spark.stop()
 
 
