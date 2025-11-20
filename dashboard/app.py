@@ -126,17 +126,171 @@ def tab_top5_zones():
     )
     st.plotly_chart(fig, use_container_width=True)
 
+def tab_evolution_annuelle():
+    st.subheader("Évolution du volume de crimes par année")
+
+    mode = st.radio(
+        "Mode d'affichage",
+        ["Tous crimes confondus", "Par gravité (Part 1-2)"],
+        key="mode_evolution",
+    )
+
+    # Tous crimes confondus (comme avant)
+    if mode == "Tous crimes confondus":
+        df_global = load_hdfs_csv_dir("crimes_per_year")
+        if df_global.empty:
+            st.warning("Aucune donnée trouvée dans HDFS pour crimes_per_year.")
+            return
+
+        df_global.columns = [c.strip() for c in df_global.columns]
+        if "year_int" not in df_global.columns or "n_crimes" not in df_global.columns:
+            st.error("Colonnes year_int ou n_crimes introuvables pour crimes_per_year.")
+            st.write(df_global.head())
+            return
+
+        df_global_sorted = df_global.sort_values("year_int")
+
+        st.markdown("### Volume de crimes par année – Global (Los Angeles)")
+        fig_global = px.line(
+            df_global_sorted,
+            x="year_int",
+            y="n_crimes",
+            markers=True,
+            labels={
+                "year_int": "Année",
+                "n_crimes": "Nombre de crimes",
+            },
+        )
+        st.plotly_chart(fig_global, use_container_width=True)
+
+        # Par zone (sans gravité)
+        st.markdown("### Volume de crimes par année – par zone")
+
+        df_area = load_hdfs_csv_dir("crimes_per_year_area")
+        if df_area.empty:
+            st.warning("Aucune donnée trouvée pour crimes_per_year_area.")
+            return
+
+        df_area.columns = [c.strip() for c in df_area.columns]
+        needed_cols = {"year_int", "AREA NAME", "n_crimes"}
+        if not needed_cols.issubset(set(df_area.columns)):
+            st.error(f"Colonnes manquantes dans crimes_per_year_area. Attendu: {needed_cols}")
+            st.write(df_area.head())
+            return
+
+        zones = sorted(df_area["AREA NAME"].unique())
+        selected_zones = st.multiselect(
+            "Choisissez une ou plusieurs zones",
+            zones,
+            default=zones[:3] if len(zones) > 3 else zones,
+            key="zones_evolution_simple",
+        )
+
+        df_area_filtered = df_area[df_area["AREA NAME"].isin(selected_zones)]
+        df_area_filtered = df_area_filtered.sort_values(["AREA NAME", "year_int"])
+
+        fig_area = px.line(
+            df_area_filtered,
+            x="year_int",
+            y="n_crimes",
+            color="AREA NAME",
+            markers=True,
+            labels={
+                "year_int": "Année",
+                "n_crimes": "Nombre de crimes",
+                "AREA NAME": "Zone",
+            },        )
+        st.plotly_chart(fig_area, use_container_width=True)
+
+    # Par gravité (Part 1-2)
+    else:
+        st.markdown("#### Global – par gravité")
+
+        df_sev_global = load_hdfs_csv_dir("crimes_per_year_severity")
+        if df_sev_global.empty:
+            st.warning("Aucune donnée trouvée pour crimes_per_year_severity.")
+            return
+
+        df_sev_global.columns = [c.strip() for c in df_sev_global.columns]
+        needed_cols_global = {"year_int", "part_1_2", "n_crimes"}
+        if not needed_cols_global.issubset(set(df_sev_global.columns)):
+            st.error(f"Colonnes manquantes dans crimes_per_year_severity. Attendu: {needed_cols_global}")
+            st.write(df_sev_global.head())
+            return
+
+        df_sev_global = df_sev_global.sort_values(["year_int", "part_1_2"])
+
+        fig_sev_global = px.line(
+            df_sev_global,
+            x="year_int",
+            y="n_crimes",
+            color="part_1_2",
+            markers=True,
+            labels={
+                "year_int": "Année",
+                "n_crimes": "Nombre de crimes",
+                "part_1_2": "Gravité (1 = moins grave, 2 = plus grave)",
+            },
+        )
+        st.plotly_chart(fig_sev_global, use_container_width=True)
+
+        st.markdown("#### Par zone et par gravité")
+
+        df_sev_area = load_hdfs_csv_dir("crimes_per_year_area_severity")
+        if df_sev_area.empty:
+            st.warning("Aucune donnée trouvée pour crimes_per_year_area_severity.")
+            return
+
+        df_sev_area.columns = [c.strip() for c in df_sev_area.columns]
+        needed_cols_area = {"year_int", "AREA NAME", "part_1_2", "n_crimes"}
+        if not needed_cols_area.issubset(set(df_sev_area.columns)):
+            st.error(f"Colonnes manquantes dans crimes_per_year_area_severity. Attendu: {needed_cols_area}")
+            st.write(df_sev_area.head())
+            return
+
+        zones = sorted(df_sev_area["AREA NAME"].unique())
+        selected_zone = st.selectbox(
+            "Zone à afficher",
+            zones,
+            key="zone_evolution_severity",
+        )
+
+        df_zone = df_sev_area[df_sev_area["AREA NAME"] == selected_zone]
+        df_zone = df_zone.sort_values(["year_int", "part_1_2"])
+
+        fig_zone = px.line(
+            df_zone,
+            x="year_int",
+            y="n_crimes",
+            color="part_1_2",
+            markers=True,
+            labels={
+                "year_int": "Année",
+                "n_crimes": f"Nombre de crimes ({selected_zone})",
+                "part_1_2": "Gravité (1 = moins grave, 2 = plus grave)",
+            },
+        )
+        st.plotly_chart(fig_zone, use_container_width=True)
+
 
 def main():
     st.title("Criminalité à Los Angeles – Dashboard")
 
-    tab1, tab2 = st.tabs(["Moyennes par zone", "Top 5 zones les plus à risque"])
+    tab1, tab2, tab3 = st.tabs([
+        "Moyennes par zone",
+        "Top 5 zones les plus à risque",
+        "Évolution annuelle"
+    ])
 
     with tab1:
         tab_moyennes_par_zone()
 
     with tab2:
         tab_top5_zones()
+
+    with tab3:
+        tab_evolution_annuelle()
+
 
 
 if __name__ == "__main__":

@@ -27,6 +27,8 @@ def main():
         .csv(curated_path)
     )
     df = df.withColumn("date_occ", to_date(col("date_occ")))
+    if "Part 1-2" in df.columns:
+        df = df.withColumnRenamed("Part 1-2", "part_1_2")
     area_col = "AREA NAME"
 
 
@@ -110,6 +112,67 @@ def main():
         .option("header", "true")
         .csv(analytics_base + "/total_by_area")
     )
+
+    # Yearly crime volume
+    df_year = df.withColumn("year_int", year(col("date_occ")))
+
+    crimes_per_year = (
+        df_year.groupBy("year_int")
+        .agg(count("*").alias("n_crimes"))
+    )
+
+    (
+        crimes_per_year
+        .write
+        .mode("overwrite")
+        .option("header", "true")
+        .csv(analytics_base + "/crimes_per_year")
+    )
+
+    # Yearly crime volume per area
+    crimes_per_year_area = (
+        df_year.groupBy("year_int", area_col)
+        .agg(count("*").alias("n_crimes"))
+    )
+
+    (
+        crimes_per_year_area
+        .write
+        .mode("overwrite")
+        .option("header", "true")
+        .csv(analytics_base + "/crimes_per_year_area")
+    )
+    
+
+    # Yearly crime volume by severity (global)
+    if "part_1_2" in df_year.columns:
+        crimes_per_year_severity = (
+            df_year.groupBy("year_int", "part_1_2")
+            .agg(count("*").alias("n_crimes"))
+        )
+
+        (
+            crimes_per_year_severity
+            .write
+            .mode("overwrite")
+            .option("header", "true")
+            .csv(analytics_base + "/crimes_per_year_severity")
+        )
+
+        # Yearly crime volume by severity and area
+        crimes_per_year_area_severity = (
+            df_year.groupBy("year_int", area_col, "part_1_2")
+            .agg(count("*").alias("n_crimes"))
+        )
+
+        (
+            crimes_per_year_area_severity
+            .write
+            .mode("overwrite")
+            .option("header", "true")
+            .csv(analytics_base + "/crimes_per_year_area_severity")
+        )
+
     spark.stop()
 
 
