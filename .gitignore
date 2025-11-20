@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Données
+data/
+work/
+
+# VSCode / IDE
+.vscode/
+.idea/
