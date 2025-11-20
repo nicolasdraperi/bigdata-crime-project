@@ -4,3 +4,4 @@ plotly
 hdfs
 folium
 streamlit-folium
+streamlit-option-menu

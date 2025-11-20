@@ -5,6 +5,7 @@ from hdfs import InsecureClient
 
 import folium
 from streamlit_folium import st_folium
+from streamlit_option_menu import option_menu
 
 
 HDFS_URL = "http://namenode:9870"
@@ -46,7 +47,7 @@ def load_hdfs_csv_dir(subdir: str) -> pd.DataFrame:
 def tab_moyennes_par_zone():
     st.subheader("Moyenne de crimes par zone")
 
-    period = st.sidebar.selectbox(
+    period = st.selectbox(
         "Période d'agrégation",
         ["Jour", "Semaine", "Mois"],
         key="period_select",
@@ -335,28 +336,172 @@ def tab_heatmap_spatio_temporelle():
 
     st_folium(m, width=900, height=600)
 
+def tab_high_risk_contexts():
+    st.subheader("Scénarios de contexte à haut risque")
+
+    df = load_hdfs_csv_dir("high_risk_contexts")
+    if df.empty:
+        st.warning("Aucune donnée trouvée dans HDFS pour high_risk_contexts.")
+        return
+
+    df.columns = [c.strip() for c in df.columns]
+
+    expected_cols = {
+        "AREA NAME",
+        "time_slot",
+        "place_type",
+        "age_range",
+        "sex_norm",
+        "n_crimes",
+        "z_score",
+        "risk_level",
+    }
+    if not expected_cols.issubset(set(df.columns)):
+        st.error(f"Colonnes manquantes dans high_risk_contexts. Attendu au minimum : {expected_cols}")
+        st.write(df.head())
+        return
+
+    st.markdown("Filtrer les scénarios :")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        zones = sorted(df["AREA NAME"].unique())
+        selected_zones = st.multiselect(
+            "Zones",
+            zones,
+            default=[],
+            key="hr_zones",
+        )
+
+    with col2:
+        time_slots = sorted(df["time_slot"].unique())
+        selected_time_slots = st.multiselect(
+            "Tranches horaires",
+            time_slots,
+            default=[],
+            key="hr_times",
+        )
+
+    with col3:
+        risk_levels = sorted(df["risk_level"].unique())
+        selected_risks = st.multiselect(
+            "Niveau de risque",
+            risk_levels,
+            default=["Très élevé", "Élevé"] if "Très élevé" in risk_levels else risk_levels,
+            key="hr_risks",
+        )
+    col4, col5 = st.columns(2)
+    with col4:
+        age_ranges = sorted(df["age_range"].unique())
+        selected_ages = st.multiselect(
+            "Tranches d'âge",
+            age_ranges,
+            default=[],
+            key="hr_ages",
+        )
+
+    with col5:
+        sexes = sorted(df["sex_norm"].unique())
+        selected_sexes = st.multiselect(
+            "Sexe de la victime",
+            sexes,
+            default=[],
+            key="hr_sexes",
+        )
+
+    df_filtered = df
+
+    if selected_zones:
+        df_filtered = df_filtered[df_filtered["AREA NAME"].isin(selected_zones)]
+    if selected_time_slots:
+        df_filtered = df_filtered[df_filtered["time_slot"].isin(selected_time_slots)]
+    if selected_risks:
+        df_filtered = df_filtered[df_filtered["risk_level"].isin(selected_risks)]
+    if selected_ages:
+        df_filtered = df_filtered[df_filtered["age_range"].isin(selected_ages)]
+    if selected_sexes:
+        df_filtered = df_filtered[df_filtered["sex_norm"].isin(selected_sexes)]
+
+    if df_filtered.empty:
+        st.warning("Aucun scénario ne correspond aux filtres sélectionnés.")
+        return
+    st.markdown("### Résumé")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Nombre de scénarios", len(df_filtered))
+    with c2:
+        st.metric("Crimes max sur un scénario", int(df_filtered["n_crimes"].max()))
+    with c3:
+        st.metric("Z-score max", round(float(df_filtered["z_score"].max()), 2))
+    st.markdown("### Scénarios à haut risque (triés par score)")
+    df_display = df_filtered.sort_values("z_score", ascending=False)
+    st.dataframe(df_display)
+    st.markdown("### Top scénarios (bar chart)")
+
+    top_n = min(20, len(df_display))
+    df_top = df_display.head(top_n).copy()
+    df_top["context"] = (
+        df_top["AREA NAME"]
+        + " | "
+        + df_top["time_slot"]
+        + " | "
+        + df_top["place_type"].str.slice(0, 25)
+        + "..."
+    )
+
+    fig = px.bar(
+        df_top,
+        x="context",
+        y="z_score",
+        hover_data=["n_crimes", "age_range", "sex_norm", "risk_level"],
+        labels={
+            "context": "Contexte",
+            "z_score": "Score de risque (z-score)",
+        },
+    )
+    fig.update_xaxes(tickangle=45)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown(
+        """
+        **Note méthodo :**  
+        Ces scénarios sont identifiés comme à risque élevé car le nombre de crimes
+        observés pour cette combinaison (zone × tranche horaire × type de lieu × tranche d’âge × sexe)
+        est significativement supérieur à la moyenne (z-score ≥ 2, avec un volume minimal de cas).
+        """
+    )
 
 def main():
     st.title("Criminalité à Los Angeles – Dashboard")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Moyennes par zone",
-        "Top 5 zones les plus à risque",
-        "Évolution annuelle",
-        "Heatmap spatio-temporelle",
-    ])
+    with st.sidebar:
+        st.markdown("## Navigation")
 
-    with tab1:
+        page = option_menu(
+            None,
+            [
+                "Moyennes par zone",
+                "Top 5 zones les plus à risque",
+                "Évolution annuelle",
+                "Heatmap spatio-temporelle",
+                "Scénarios à haut risque",
+            ],
+            menu_icon="list",
+            default_index=0,
+        )
+
+    if page == "Moyennes par zone":
         tab_moyennes_par_zone()
-
-    with tab2:
+    elif page == "Top 5 zones les plus à risque":
         tab_top5_zones()
-
-    with tab3:
+    elif page == "Évolution annuelle":
         tab_evolution_annuelle()
-
-    with tab4:
+    elif page == "Heatmap spatio-temporelle":
         tab_heatmap_spatio_temporelle()
+    elif page == "Scénarios à haut risque":
+        tab_high_risk_contexts()
+
 
 if __name__ == "__main__":
     main()
