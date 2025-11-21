@@ -29,7 +29,10 @@ def main():
     )
     df = df.withColumn("date_occ", to_date(col("date_occ_ts")))
     df = df.withColumn("year", year(col("date_occ")))
-    df_clean = df.filter(col("date_occ").isNotNull())
+    df_clean = df.filter(
+        col("date_occ").isNotNull() & (col("year") <= 2023)
+    )
+
     (
         df_clean
         .write

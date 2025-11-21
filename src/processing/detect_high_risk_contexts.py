@@ -10,6 +10,9 @@ from pyspark.sql.functions import (
     stddev_pop,
     floor,
     lit,
+    sum as spark_sum,
+    greatest,
+    least,
 )
 
 
@@ -148,10 +151,12 @@ def main():
     stats = context_counts.agg(
         avg("n_crimes").alias("mean_n"),
         stddev_pop("n_crimes").alias("std_n"),
+        spark_sum("n_crimes").alias("total_crimes"),
     ).collect()[0]
 
     mean_n = stats["mean_n"]
     std_n = stats["std_n"] if stats["std_n"] is not None and stats["std_n"] != 0 else 1.0
+    total_crimes = stats["total_crimes"] if stats["total_crimes"] is not None else 1.0
 
     scored = context_counts.withColumn(
         "z_score", (col("n_crimes") - lit(mean_n)) / lit(std_n)
@@ -162,6 +167,17 @@ def main():
         when(col("z_score") >= 3.0, "Tres eleve")
         .when(col("z_score") >= 2.0, "Eleve")
         .otherwise("Normal"),
+    )
+
+    scored = scored.withColumn(
+        "crime_share_percent",
+        (col("n_crimes") / lit(total_crimes)) * lit(100.0)
+    )
+
+    risk_raw = (col("z_score") / lit(5.0)) * lit(10.0)
+    scored = scored.withColumn(
+        "risk_score_10",
+        least(greatest(risk_raw, lit(0.0)), lit(10.0))
     )
 
     min_count = 50

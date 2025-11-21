@@ -9,6 +9,9 @@ from pyspark.sql.functions import (
     month,
     count,
     avg,
+    when,
+    trim,
+    upper,
 )
 
 
@@ -222,6 +225,38 @@ def main():
             .option("header", "true")
             .csv(out_heatmap_monthly)
         )
+    
+    out_weapon_usage = analytics_base + "/weapon_usage_per_year"
+    if "Weapon Desc" in df_year.columns and not hdfs_path_exists(spark, out_weapon_usage):
+        df_weapon = df_year.withColumn(
+            "weapon_desc_norm",
+            upper(trim(col("Weapon Desc")))
+        )
+
+        weapon_used_col = when(
+            df_weapon["weapon_desc_norm"].isNull()
+            | (df_weapon["weapon_desc_norm"] == "")
+            | df_weapon["weapon_desc_norm"].isin(
+                "STRONG-ARM (HANDS, FIST, FEET OR BODILY FORCE)",
+                "VERBAL THREAT",
+            ),
+            "Aucune arme",
+        ).otherwise("Arme utilisée")
+
+        df_weapon = df_weapon.withColumn("weapon_used", weapon_used_col)
+
+        weapon_usage_per_year = (
+            df_weapon.groupBy("year_int", "weapon_used")
+            .agg(count("*").alias("n_crimes"))
+        )
+
+        (
+            weapon_usage_per_year
+            .write
+            .mode("overwrite")
+            .option("header", "true")
+            .csv(out_weapon_usage)
+        )    
 
     spark.stop()
 
