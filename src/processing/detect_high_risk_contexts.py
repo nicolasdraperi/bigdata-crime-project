@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# ^ j'ai pas compris ce truc mais ça regle mes probleme 
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
@@ -39,6 +42,14 @@ def build_age_range(age_col):
     )
 
 
+def hdfs_path_exists(spark, path):
+    hadoop_conf = spark._jsc.hadoopConfiguration()
+    fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
+    jpath = spark._jvm.org.apache.hadoop.fs.Path(path)
+    print("Fichier Déja présent !")
+    return fs.exists(jpath)
+
+
 def main():
     curated_path = "hdfs://namenode:9000/datalake/curated/crime"
     analytics_base = "hdfs://namenode:9000/datalake/analytics/crime"
@@ -50,6 +61,14 @@ def main():
         .config("spark.hadoop.fs.defaultFS", "hdfs://namenode:9000")
         .getOrCreate()
     )
+
+    out_scores = analytics_base + "/context_risk_scores"
+    out_high_risk = analytics_base + "/high_risk_contexts"
+
+    if hdfs_path_exists(spark, out_scores) and hdfs_path_exists(spark, out_high_risk):
+        print("Context risk outputs already exist in HDFS, skipping computation.")
+        spark.stop()
+        return
 
     df = (
         spark.read
@@ -152,11 +171,13 @@ def main():
         .orderBy(col("z_score").desc())
     )
 
-    scored.write.mode("overwrite").option("header", "true") \
-        .csv(analytics_base + "/context_risk_scores")
+    if not hdfs_path_exists(spark, out_scores):
+        scored.write.mode("overwrite").option("header", "true") \
+            .csv(out_scores)
 
-    high_risk.write.mode("overwrite").option("header", "true") \
-        .csv(analytics_base + "/high_risk_contexts")
+    if not hdfs_path_exists(spark, out_high_risk):
+        high_risk.write.mode("overwrite").option("header", "true") \
+            .csv(out_high_risk)
 
     spark.stop()
 
